@@ -35,6 +35,14 @@ CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 LOG_DIR = os.path.join(APP_DIR, "logs")
 DEFAULT_SERVER = os.path.join(APP_DIR, "bin", "llama-server.exe")
 
+
+def resource_path(name):
+    """打包(frozen)与源码运行时的资源路径。"""
+    return os.path.join(getattr(sys, "_MEIPASS", APP_DIR), name)
+
+
+ICON_PATH = resource_path("icon.ico")
+
 # ---------------------------------------------------------------- 参数映射
 # 配置 JSON 里的键 -> (命令行参数, 转换函数)
 ARGS_MAP = {
@@ -427,9 +435,15 @@ class LauncherApp:
         self.exiting = False
         self.proxy = None
 
-        self.root.title("LLM Launcher — Qwen3.8-27B")
+        self.root.title("LLM Launcher")
         self.root.geometry("860x560")
         self.root.minsize(640, 420)
+        # 窗口 / 任务栏图标
+        if os.path.exists(ICON_PATH):
+            try:
+                self.root.iconbitmap(ICON_PATH)
+            except Exception:
+                pass
 
         self._build_ui()
         self.reload_config()
@@ -701,7 +715,14 @@ class LauncherApp:
     def _setup_tray(self):
         if not HAS_TRAY:
             return
-        img = self._tray_image()
+        img = None
+        if os.path.exists(ICON_PATH):
+            try:
+                img = Image.open(ICON_PATH)
+            except Exception:
+                img = None
+        if img is None:
+            img = self._tray_image()
         menu = pystray.Menu(
             pystray.MenuItem("显示窗口", self._tray_show, default=True),
             pystray.MenuItem("启动服务", self._tray_start),
