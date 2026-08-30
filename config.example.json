@@ -3,7 +3,7 @@
   "base_dir": "D:/path/to/models",
   "vllm": {
     "executable": "D:/path/to/vllm/venv/Scripts/python.exe",
-    "module": "vllm",
+    "module": "vllm.entrypoints.cli.main",
     "common_args": {
       "host": "127.0.0.1",
       "port": 8000,
