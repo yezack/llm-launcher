@@ -1,0 +1,77 @@
+{
+  "_comment": "复制本文件为 config.json 后按需修改。base_dir 支持环境变量(如 %USERPROFILE%)；profile 里 model 用相对路径(相对 base_dir)或绝对路径。engine=vllm 的 profile 走 vllm serve（参数见顶层 vllm 段，用 python -m vllm 启动）。",
+  "base_dir": "D:/path/to/models",
+  "server_executable": "bin/llama-server.exe",
+  "host": "0.0.0.0",
+  "port": 62345,
+  "use_guard": false,
+  "vllm": {
+    "executable": "D:/path/to/vllm/venv/Scripts/python.exe",
+    "module": "vllm",
+    "common_args": {
+      "host": "127.0.0.1",
+      "port": 8000,
+      "gpu_memory_utilization": 0.945,
+      "kv_cache_dtype": "fp8",
+      "quantization": "modelopt",
+      "trust_remote_code": true,
+      "enforce_eager": true,
+      "reasoning_parser": "qwen3",
+      "tool_call_parser": "qwen3_xml",
+      "enable_auto_tool_choice": true
+    },
+    "env": {
+      "PYTHONUTF8": "1",
+      "VLLM_HOST_IP": "127.0.0.1"
+    }
+  },
+  "profiles": [
+    {
+      "name": "vLLM · 100K 单路",
+      "engine": "vllm",
+      "description": "100K 单路（fp8 KV）。适合单个长上下文任务。",
+      "alias": "model-100k",
+      "model": "D:/path/to/models/your-model",
+      "args": {
+        "max_model_len": 100000,
+        "max_num_seqs": 1
+      }
+    },
+    {
+      "name": "vLLM · 50K 双路",
+      "engine": "vllm",
+      "description": "50K × 2 并发（总 100K token）。适合两个任务并行。",
+      "alias": "model-50kx2",
+      "model": "D:/path/to/models/your-model",
+      "args": {
+        "max_model_len": 50000,
+        "max_num_seqs": 2
+      }
+    },
+    {
+      "name": "vLLM · 32K 三路",
+      "engine": "vllm",
+      "description": "32K × 3 并发（总 96K token）。适合三个任务并行。",
+      "alias": "model-32kx3",
+      "model": "D:/path/to/models/your-model",
+      "args": {
+        "max_model_len": 32000,
+        "max_num_seqs": 3
+      }
+    },
+    {
+      "name": "llama.cpp · 示例配置",
+      "description": "llama.cpp GGUF 模型示例。mmproj 留空=纯文本。",
+      "alias": "model-gguf",
+      "model": "relative/path/model.gguf",
+      "mmproj": "",
+      "args": {
+        "ctx": 32768,
+        "ngl": 99,
+        "threads": 16,
+        "parallel": 1
+      },
+      "env": {}
+    }
+  ]
+}
