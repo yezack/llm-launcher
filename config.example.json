@@ -1,10 +1,6 @@
 {
-  "_comment": "复制本文件为 config.json 后按需修改。base_dir 支持环境变量(如 %USERPROFILE%)；profile 里 model 用相对路径(相对 base_dir)或绝对路径。engine=vllm 的 profile 走 vllm serve（参数见顶层 vllm 段，用 python -m vllm 启动）。",
+  "_comment": "复制本文件为 config.json 后按需修改。当前仅 vLLM 引擎：profile 的 engine=vllm，参数见顶层 vllm 段（用 python -m vllm 启动）。",
   "base_dir": "D:/path/to/models",
-  "server_executable": "bin/llama-server.exe",
-  "host": "0.0.0.0",
-  "port": 62345,
-  "use_guard": false,
   "vllm": {
     "executable": "D:/path/to/vllm/venv/Scripts/python.exe",
     "module": "vllm",
@@ -58,20 +54,6 @@
         "max_model_len": 32000,
         "max_num_seqs": 3
       }
-    },
-    {
-      "name": "llama.cpp · 示例配置",
-      "description": "llama.cpp GGUF 模型示例。mmproj 留空=纯文本。",
-      "alias": "model-gguf",
-      "model": "relative/path/model.gguf",
-      "mmproj": "",
-      "args": {
-        "ctx": 32768,
-        "ngl": 99,
-        "threads": 16,
-        "parallel": 1
-      },
-      "env": {}
     }
   ]
 }
