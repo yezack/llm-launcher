@@ -610,7 +610,10 @@ class LauncherApp:
             if is_vllm:
                 vllm_cfg = self.cfg.get("vllm") or {}
                 # 启动前修复 venv 硬编码路径(自包含 venv 可移植)
-                fix_venv_home(expand_path(vllm_cfg.get("executable", "")))
+                _vllm_exe = expand_path(vllm_cfg.get("executable", ""))
+                if not os.path.isabs(_vllm_exe):
+                    _vllm_exe = os.path.join(APP_DIR, _vllm_exe)
+                fix_venv_home(_vllm_exe)
                 merged = dict(vllm_cfg.get("common_args") or {})
                 merged.update(p.get("args") or {})
                 port = int(merged.get("port") or 8000)

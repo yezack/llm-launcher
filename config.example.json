@@ -2,7 +2,7 @@
   "_comment": "复制本文件为 config.json 后按需修改。当前仅 vLLM 引擎：profile 的 engine=vllm，参数见顶层 vllm 段（用 python -m vllm 启动）。",
   "base_dir": "D:/path/to/models",
   "vllm": {
-    "executable": "D:/path/to/vllm/venv/Scripts/python.exe",
+    "executable": "../vllm/venv/Scripts/python.exe",
     "module": "vllm.entrypoints.cli.main",
     "common_args": {
       "host": "127.0.0.1",
