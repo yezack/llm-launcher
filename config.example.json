@@ -12,9 +12,7 @@
       "quantization": "modelopt",
       "trust_remote_code": true,
       "enforce_eager": true,
-      "reasoning_parser": "qwen3",
-      "tool_call_parser": "qwen3_xml",
-      "enable_auto_tool_choice": true
+      "served_model_name": "qwen3.8-27b"
     },
     "env": {
       "PYTHONUTF8": "1",
@@ -34,13 +32,13 @@
       }
     },
     {
-      "name": "vLLM · 50K 双路",
+      "name": "vLLM · 48K 双路",
       "engine": "vllm",
-      "description": "50K × 2 并发（总 100K token）。适合两个任务并行。",
+      "description": "48K × 2 并发（总 100K token）。适合两个任务并行。",
       "alias": "model-50kx2",
       "model": "D:/path/to/models/your-model",
       "args": {
-        "max_model_len": 50000,
+        "max_model_len": 48000,
         "max_num_seqs": 2
       }
     },

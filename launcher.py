@@ -161,6 +161,41 @@ def build_vllm_cmd(profile, vllm_cfg, defaults=None, base_dir=None):
     return cmd
 
 
+def fix_venv_home(python_exe):
+    """修复 venv 的 pyvenv.cfg 硬编码路径, 使 vLLM 环境可移植。
+    python_exe 形如 .../venv/Scripts/python.exe, 自包含 base 在 .../venv/python-base。
+    只在路径不一致时重写, 幂等且无副作用。"""
+    scripts_dir = os.path.dirname(python_exe)
+    venv_dir = os.path.dirname(scripts_dir)
+    base_dir = os.path.join(venv_dir, "python-base")
+    cfg_path = os.path.join(venv_dir, "pyvenv.cfg")
+    if not (os.path.isdir(base_dir) and os.path.isfile(cfg_path)):
+        return  # 非自包含 venv, 跳过
+    base_exe = os.path.join(base_dir, "python.exe")
+    try:
+        with open(cfg_path, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        changed = False
+        new_lines = []
+        for ln in lines:
+            if ln.startswith("home ="):
+                new_val = "home = %s" % base_dir
+                if ln != new_val:
+                    ln = new_val
+                    changed = True
+            elif ln.startswith("executable ="):
+                new_val = "executable = %s" % base_exe
+                if ln != new_val:
+                    ln = new_val
+                    changed = True
+            new_lines.append(ln)
+        if changed:
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(new_lines) + "\n")
+    except Exception:
+        pass
+
+
 def port_in_use(port):
     """检查端口是否被占用。非法端口视为占用(安全失败)。"""
     try:
@@ -574,6 +609,8 @@ class LauncherApp:
         try:
             if is_vllm:
                 vllm_cfg = self.cfg.get("vllm") or {}
+                # 启动前修复 venv 硬编码路径(自包含 venv 可移植)
+                fix_venv_home(expand_path(vllm_cfg.get("executable", "")))
                 merged = dict(vllm_cfg.get("common_args") or {})
                 merged.update(p.get("args") or {})
                 port = int(merged.get("port") or 8000)
