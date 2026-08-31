@@ -127,75 +127,6 @@ def build_cmd(profile, server_exe, defaults=None, base_dir=None):
     return cmd
 
 
-def build_vllm_cmd(profile, vllm_cfg, defaults=None, base_dir=None):
-    """由 profile + vllm 配置段生成 vllm serve 命令行参数列表。
-    vllm_cfg 提供 executable 与 common_args; profile 的 args 可覆盖。"""
-    exe = expand_path(vllm_cfg.get("executable", ""))
-    if not os.path.isabs(exe):
-        exe = os.path.join(APP_DIR, exe)
-    if not os.path.exists(exe):
-        raise FileNotFoundError("找不到 vllm.exe: %s" % exe)
-
-    model = resolve_path(profile.get("model", ""), base_dir)
-    if not model:
-        raise ValueError("配置缺少 model 字段")
-    if not os.path.exists(model):
-        raise FileNotFoundError("模型目录不存在: %s" % model)
-
-    cmd = [exe]
-    if vllm_cfg.get("module"):
-        cmd += ["-m", vllm_cfg["module"]]
-    cmd += ["serve", model]
-    args = dict(vllm_cfg.get("common_args") or {})
-    args.update(defaults or {})
-    args.update(profile.get("args") or {})
-    for key, val in args.items():
-        if val is None or val == "":
-            continue
-        flag = "--" + key
-        if isinstance(val, bool):
-            if val:
-                cmd.append(flag)
-        else:
-            cmd += [flag, str(val)]
-    return cmd
-
-
-def fix_venv_home(python_exe):
-    """修复 venv 的 pyvenv.cfg 硬编码路径, 使 vLLM 环境可移植。
-    python_exe 形如 .../venv/Scripts/python.exe, 自包含 base 在 .../venv/python-base。
-    只在路径不一致时重写, 幂等且无副作用。"""
-    scripts_dir = os.path.dirname(python_exe)
-    venv_dir = os.path.dirname(scripts_dir)
-    base_dir = os.path.join(venv_dir, "python-base")
-    cfg_path = os.path.join(venv_dir, "pyvenv.cfg")
-    if not (os.path.isdir(base_dir) and os.path.isfile(cfg_path)):
-        return  # 非自包含 venv, 跳过
-    base_exe = os.path.join(base_dir, "python.exe")
-    try:
-        with open(cfg_path, encoding="utf-8") as f:
-            lines = f.read().splitlines()
-        changed = False
-        new_lines = []
-        for ln in lines:
-            if ln.startswith("home ="):
-                new_val = "home = %s" % base_dir
-                if ln != new_val:
-                    ln = new_val
-                    changed = True
-            elif ln.startswith("executable ="):
-                new_val = "executable = %s" % base_exe
-                if ln != new_val:
-                    ln = new_val
-                    changed = True
-            new_lines.append(ln)
-        if changed:
-            with open(cfg_path, "w", encoding="utf-8") as f:
-                f.write("\n".join(new_lines) + "\n")
-    except Exception:
-        pass
-
-
 def port_in_use(port):
     """检查端口是否被占用。非法端口视为占用(安全失败)。"""
     try:
@@ -569,11 +500,7 @@ class LauncherApp:
             self.desc_label.config(text="")
             return
         desc = p.get("description", "")
-        if p.get("engine") == "vllm":
-            merged = dict((self.cfg.get("vllm") or {}).get("common_args") or {})
-            merged.update(p.get("args") or {})
-        else:
-            merged = self.merged_args()
+        merged = self.merged_args()
         args = dict(merged)
         alias = p.get("alias", "—")
         host = merged.get("host", "127.0.0.1")
@@ -605,45 +532,29 @@ class LauncherApp:
         if not p:
             messagebox.showwarning("提示", "请先选择配置")
             return
-        is_vllm = (p.get("engine") == "vllm")
         try:
-            if is_vllm:
-                vllm_cfg = self.cfg.get("vllm") or {}
-                # 启动前修复 venv 硬编码路径(自包含 venv 可移植)
-                _vllm_exe = expand_path(vllm_cfg.get("executable", ""))
-                if not os.path.isabs(_vllm_exe):
-                    _vllm_exe = os.path.join(APP_DIR, _vllm_exe)
-                fix_venv_home(_vllm_exe)
-                merged = dict(vllm_cfg.get("common_args") or {})
-                merged.update(p.get("args") or {})
-                port = int(merged.get("port") or 8000)
-                external_host = str(merged.get("host") or "127.0.0.1")
-                cmd = build_vllm_cmd(p, vllm_cfg, base_dir=self.cfg.get("base_dir"))
-                use_guard = False
-                internal_port = None
-            else:
-                exe = self.server_executable()
-                if not os.path.exists(exe):
-                    raise FileNotFoundError("找不到 llama-server.exe: %s" % exe)
-                merged = self.merged_args()
-                port = int(merged.get("port") or 8080)
-                external_host = str(merged.get("host") or "0.0.0.0")
-                use_guard = bool(self.cfg.get("use_guard", True))
-                if use_guard:
-                    # 代理模式: llama-server 绑本机内部端口, 代理绑对外地址
-                    try:
-                        cfg_internal = int(self.cfg.get("internal_port") or 0)
-                    except (TypeError, ValueError):
-                        cfg_internal = 0
-                    if cfg_internal and not port_in_use(cfg_internal):
-                        internal_port = cfg_internal
-                    else:
-                        internal_port = find_free_port()
-                    cmd = build_cmd(p, exe, dict(merged, host="127.0.0.1", port=internal_port), base_dir=self.cfg.get("base_dir"))
+            exe = self.server_executable()
+            if not os.path.exists(exe):
+                raise FileNotFoundError("找不到 llama-server.exe: %s" % exe)
+            merged = self.merged_args()
+            port = int(merged.get("port") or 8080)
+            external_host = str(merged.get("host") or "0.0.0.0")
+            use_guard = bool(self.cfg.get("use_guard", True))
+            if use_guard:
+                # 代理模式: llama-server 绑本机内部端口, 代理绑对外地址
+                try:
+                    cfg_internal = int(self.cfg.get("internal_port") or 0)
+                except (TypeError, ValueError):
+                    cfg_internal = 0
+                if cfg_internal and not port_in_use(cfg_internal):
+                    internal_port = cfg_internal
                 else:
-                    # 直连模式: llama-server 直接绑对外地址, 单端口, 无保险丝
-                    internal_port = None
-                    cmd = build_cmd(p, exe, merged, base_dir=self.cfg.get("base_dir"))
+                    internal_port = find_free_port()
+                cmd = build_cmd(p, exe, dict(merged, host="127.0.0.1", port=internal_port), base_dir=self.cfg.get("base_dir"))
+            else:
+                # 直连模式: llama-server 直接绑对外地址, 单端口, 无保险丝
+                internal_port = None
+                cmd = build_cmd(p, exe, merged, base_dir=self.cfg.get("base_dir"))
         except Exception as e:
             messagebox.showerror("启动失败", str(e))
             return
@@ -657,8 +568,6 @@ class LauncherApp:
         try:
             env = os.environ.copy()
             env.update(self.cfg.get("env") or {})
-            if is_vllm:
-                env.update((self.cfg.get("vllm") or {}).get("env") or {})
             env.update((p or {}).get("env") or {})
             log_path = self.server.start(cmd, env=env)
         except Exception as e:
@@ -734,11 +643,7 @@ class LauncherApp:
 
     def _update_status(self):
         p = self.current_profile()
-        if p and p.get("engine") == "vllm":
-            merged = dict((self.cfg.get("vllm") or {}).get("common_args") or {})
-            merged.update(p.get("args") or {})
-        else:
-            merged = self.merged_args()
+        merged = self.merged_args()
         host = merged.get("host", "127.0.0.1")
         port = merged.get("port", "—")
         alias = p.get("alias", "—") if p else "—"

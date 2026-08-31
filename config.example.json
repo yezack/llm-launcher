@@ -1,57 +1,47 @@
 {
-  "_comment": "复制本文件为 config.json 后按需修改。当前仅 vLLM 引擎：profile 的 engine=vllm，参数见顶层 vllm 段（用 python -m vllm 启动）。",
+  "_comment": "复制本文件为 config.json 后按需修改。纯 llama.cpp：profile 的 args 用 llama-server 参数（ctx/ngl/parallel/ctk/ctv/spec_type 等），model 用相对 base_dir 或绝对路径，mmproj 留空=纯文本。",
   "base_dir": "D:/path/to/models",
-  "vllm": {
-    "executable": "../vllm/venv/Scripts/python.exe",
-    "module": "vllm.entrypoints.cli.main",
-    "common_args": {
-      "host": "127.0.0.1",
-      "port": 8000,
-      "gpu_memory_utilization": 0.945,
-      "kv_cache_dtype": "fp8",
-      "quantization": "modelopt",
-      "trust_remote_code": true,
-      "enforce_eager": true,
-      "served_model_name": "qwen3.8-27b"
-    },
-    "env": {
-      "PYTHONUTF8": "1",
-      "VLLM_HOST_IP": "127.0.0.1"
-    }
-  },
+  "server_executable": "bin/llama-server.exe",
+  "host": "0.0.0.0",
+  "port": 8080,
+  "use_guard": false,
+  "env": {},
   "profiles": [
     {
-      "name": "vLLM · 100K 单路",
-      "engine": "vllm",
-      "description": "100K 单路（fp8 KV）。适合单个长上下文任务。",
-      "alias": "model-100k",
-      "model": "D:/path/to/models/your-model",
+      "name": "示例 · 64K 单对话 · MTP",
+      "description": "Q4 权重 + K4V4 KV + MTP 投机解码。64K 单对话。",
+      "alias": "model-64k",
+      "model": "relative/path/model-Q4_K_M.gguf",
+      "mmproj": "",
       "args": {
-        "max_model_len": 100000,
-        "max_num_seqs": 1
-      }
+        "ctx": 65536,
+        "ngl": 99,
+        "threads": 16,
+        "parallel": 1,
+        "fa": "on",
+        "cache_type_k": "q4_0",
+        "cache_type_v": "q4_0",
+        "spec_type": "draft-mtp",
+        "spec_draft_n_max": 4
+      },
+      "env": {}
     },
     {
-      "name": "vLLM · 48K 双路",
-      "engine": "vllm",
-      "description": "48K × 2 并发（总 100K token）。适合两个任务并行。",
-      "alias": "model-50kx2",
-      "model": "D:/path/to/models/your-model",
+      "name": "示例 · 3对话切换",
+      "description": "3 个 slot（-np 3）共享 KV 池，多对话切换用 slot_id。",
+      "alias": "model-3chat",
+      "model": "relative/path/model-Q4_K_M.gguf",
+      "mmproj": "",
       "args": {
-        "max_model_len": 48000,
-        "max_num_seqs": 2
-      }
-    },
-    {
-      "name": "vLLM · 32K 三路",
-      "engine": "vllm",
-      "description": "32K × 3 并发（总 96K token）。适合三个任务并行。",
-      "alias": "model-32kx3",
-      "model": "D:/path/to/models/your-model",
-      "args": {
-        "max_model_len": 32000,
-        "max_num_seqs": 3
-      }
+        "ctx": 98304,
+        "ngl": 99,
+        "threads": 16,
+        "parallel": 3,
+        "fa": "on",
+        "cache_type_k": "q4_0",
+        "cache_type_v": "q4_0"
+      },
+      "env": {}
     }
   ]
 }
