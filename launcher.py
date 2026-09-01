@@ -461,6 +461,8 @@ class LauncherApp:
         self.exiting = False
         self.proxy = None
         self._server_port = None
+        self._last_decode_total = None
+        self._last_tps_t = None
 
         self.root.title("LLM Launcher")
         self.root.geometry("860x560")
@@ -476,6 +478,7 @@ class LauncherApp:
         self.reload_config()
         self.root.protocol("WM_DELETE_WINDOW", self.on_window_close)
         self.root.after(200, self._poll_loop)
+        self.root.after(1000, self._sample_speed)
         self._setup_tray()
 
     # ---------------- UI ----------------
@@ -523,8 +526,8 @@ class LauncherApp:
         self.listen_label.pack(side="left", padx=8)
         self.alias_label = ttk.Label(status, text="调用名: —")
         self.alias_label.pack(side="left", padx=8)
-        self.cfg_label = ttk.Label(status, text="")
-        self.cfg_label.pack(side="right", padx=8)
+        self.speed_label = ttk.Label(status, text="吞吐: —")
+        self.speed_label.pack(side="right", padx=8)
 
         log_frame = ttk.LabelFrame(self.root, text="服务日志")
         log_frame.pack(fill="both", expand=True, **pad)
@@ -554,7 +557,6 @@ class LauncherApp:
             self.model_combo.current(0)
             self._update_profiles()
             self._show_profile_desc()
-        self.cfg_label.config(text=os.path.basename(CONFIG_PATH))
         warnings = self.cfg.get("_warnings") or []
         if warnings:
             messagebox.showwarning("配置警告", "\n".join(warnings))
@@ -665,6 +667,7 @@ class LauncherApp:
                 # 直连模式: llama-server 直接绑对外地址, 单端口, 无保险丝
                 internal_port = None
                 cmd = build_cmd(eff, exe, merged, base_dir=self.cfg.get("base_dir"))
+            cmd.append("--metrics")  # GUI 实时吞吐依赖 /metrics 端点
         except Exception as e:
             messagebox.showerror("启动失败", str(e))
             return
@@ -775,6 +778,45 @@ class LauncherApp:
                 self.log_text.config(state="disabled")
         self._update_status()
         self.root.after(200, self._poll_loop)
+
+    def _sample_speed(self):
+        """每秒采样 /metrics: 用 n_decode(+投机接受数) 差值算实时总吞吐(多路求和)。
+        无投机时 n_decode 增量 = 生成 token 数; 投机时加上接受的 draft tokens 更接近真实输出。"""
+        port = getattr(self, "_server_port", None)
+        if not port or not self.server.running:
+            self.speed_label.config(text="吞吐: —")
+            self._last_decode_total = None
+            self.root.after(1000, self._sample_speed)
+            return
+        try:
+            with urllib.request.urlopen("http://127.0.0.1:%d/metrics" % port, timeout=3) as r:
+                text = r.read().decode("utf-8", "replace")
+            decode = self._metric_value(text, "llamacpp:n_decode_total")
+            accepted = self._metric_value(text, "llamacpp:spec_decode_num_accepted_tokens_total")
+            if decode is not None:
+                now = time.time()
+                if self._last_decode_total is not None and self._last_tps_t is not None:
+                    dt = now - self._last_tps_t
+                    delta = (decode + (accepted or 0)) - self._last_decode_total
+                    if dt > 0 and delta >= 0:
+                        self.speed_label.config(text="吞吐: %.1f tok/s" % (delta / dt))
+                self._last_decode_total = decode + (accepted or 0)
+                self._last_tps_t = now
+        except Exception:
+            self.speed_label.config(text="吞吐: —")
+            self._last_decode_total = None
+        self.root.after(1000, self._sample_speed)
+
+    @staticmethod
+    def _metric_value(text, name):
+        """从 prometheus 文本取指定指标的值(找不到返回 None)。"""
+        for line in text.splitlines():
+            if line.startswith(name + " "):
+                try:
+                    return float(line.split()[-1])
+                except ValueError:
+                    return None
+        return None
 
     def _update_status(self):
         p = self.current_profile()
