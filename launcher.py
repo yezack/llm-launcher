@@ -496,12 +496,12 @@ class LauncherApp:
         ttk.Label(top, text="配置:").pack(side="left")
         self.profile_combo = ttk.Combobox(top, state="readonly", width=34)
         self.profile_combo.pack(side="left", padx=6)
-        self.profile_combo.bind("<<ComboboxSelected>>", lambda e: self._show_profile_desc())
+        self.profile_combo.bind("<<ComboboxSelected>>", lambda e: self._on_profile_changed())
 
         ttk.Label(top, text="思考:").pack(side="left")
         self.thinking_combo = ttk.Combobox(top, state="readonly", width=10,
-                                           values=["默认", "关闭", "low", "medium", "high", "xhigh"])
-        self.thinking_combo.current(0)
+                                           values=["关闭", "low", "medium", "high", "xhigh"])
+        self.thinking_combo.set("")
         self.thinking_combo.pack(side="left", padx=6)
 
         btn_row = ttk.Frame(self.root)
@@ -578,12 +578,36 @@ class LauncherApp:
         self._update_profiles()
         self._show_profile_desc()
 
+    def _on_profile_changed(self):
+        self._sync_thinking()
+        self._show_profile_desc()
+
     def _update_profiles(self):
         m = self.current_model()
         profiles = (m or {}).get("profiles", [])
         self.profile_combo["values"] = [p.get("name", "未命名配置") for p in profiles]
         if profiles:
             self.profile_combo.current(0)
+        self._sync_thinking()
+
+    def _sync_thinking(self):
+        """切换配置时, 把「思考」下拉框同步为当前配置的档位(可手动改覆盖, 不保存)。"""
+        m = self.current_model()
+        p = self.current_profile()
+        if not p:
+            self.thinking_combo.set("")
+            return
+        args = dict(m.get("args") or {})
+        args.update(p.get("args") or {})
+        if str(args.get("reasoning", "")).lower() == "off":
+            self.thinking_combo.set("关闭")
+            return
+        eff = args.get("reasoning_effort")
+        values = list(self.thinking_combo["values"])
+        if eff in values:
+            self.thinking_combo.set(eff)
+        else:
+            self.thinking_combo.set("")
 
     def current_profile(self):
         m = self.current_model()
