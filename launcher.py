@@ -89,9 +89,25 @@ def resolve_path(p, base_dir=None):
 
 
 def load_config(path=CONFIG_PATH):
-    """加载配置文件, 返回 dict。"""
+    """加载主配置 + config.d/ 下每个模型一个文件, 合并为 models 数组。
+    主配置只放顶层(host/port/env 等) + models 索引; 每个模型文件独立, 改错一个不影响其他。"""
     with open(path, encoding="utf-8") as f:
-        return json.load(f)
+        cfg = json.load(f)
+    base_dir = os.path.dirname(os.path.abspath(path))
+    models = []
+    for ref in cfg.get("models", []):
+        fname = ref.get("file", "")
+        if not fname:
+            continue
+        fpath = fname if os.path.isabs(fname) else os.path.join(base_dir, fname)
+        if not os.path.exists(fpath):
+            continue
+        with open(fpath, encoding="utf-8") as f:
+            m = json.load(f)
+        m.setdefault("server_executable", cfg.get("server_executable"))
+        models.append(m)
+    cfg["models"] = models
+    return cfg
 
 
 def build_cmd(profile, server_exe, defaults=None, base_dir=None):
@@ -425,8 +441,13 @@ class LauncherApp:
         top = ttk.Frame(self.root)
         top.pack(fill="x", **pad)
 
-        ttk.Label(top, text="启动配置:").pack(side="left")
-        self.profile_combo = ttk.Combobox(top, state="readonly", width=58)
+        ttk.Label(top, text="模型:").pack(side="left")
+        self.model_combo = ttk.Combobox(top, state="readonly", width=26)
+        self.model_combo.pack(side="left", padx=6)
+        self.model_combo.bind("<<ComboboxSelected>>", lambda e: self._on_model_changed())
+
+        ttk.Label(top, text="配置:").pack(side="left")
+        self.profile_combo = ttk.Combobox(top, state="readonly", width=34)
         self.profile_combo.pack(side="left", padx=6)
         self.profile_combo.bind("<<ComboboxSelected>>", lambda e: self._show_profile_desc())
 
@@ -479,63 +500,93 @@ class LauncherApp:
             self.cfg = load_config()
         except Exception as e:
             messagebox.showerror("配置错误", "无法加载配置文件:\n%s\n\n路径: %s" % (e, CONFIG_PATH))
-            self.cfg = {"server_executable": "bin/llama-server.exe", "profiles": []}
+            self.cfg = {"server_executable": "bin/llama-server.exe", "models": []}
             return
-        profiles = self.cfg.get("profiles", [])
-        self.profile_combo["values"] = [p.get("name", "未命名配置") for p in profiles]
-        if profiles:
-            self.profile_combo.current(0)
+        models = self.cfg.get("models", [])
+        self.model_combo["values"] = [m.get("name", "未命名模型") for m in models]
+        if models:
+            self.model_combo.current(0)
+            self._update_profiles()
             self._show_profile_desc()
         self.cfg_label.config(text=os.path.basename(CONFIG_PATH))
 
+    def current_model(self):
+        idx = self.model_combo.current()
+        models = self.cfg.get("models", [])
+        if idx < 0 or idx >= len(models):
+            return None
+        return models[idx]
+
+    def _on_model_changed(self):
+        self._update_profiles()
+        self._show_profile_desc()
+
+    def _update_profiles(self):
+        m = self.current_model()
+        profiles = (m or {}).get("profiles", [])
+        self.profile_combo["values"] = [p.get("name", "未命名配置") for p in profiles]
+        if profiles:
+            self.profile_combo.current(0)
+
     def current_profile(self):
+        m = self.current_model()
+        if not m:
+            return None
         idx = self.profile_combo.current()
-        profiles = self.cfg.get("profiles", [])
+        profiles = m.get("profiles", [])
         if idx < 0 or idx >= len(profiles):
             return None
         return profiles[idx]
 
     def _show_profile_desc(self):
         p = self.current_profile()
-        if not p:
+        m = self.current_model()
+        if not p or not m:
             self.desc_label.config(text="")
             return
         desc = p.get("description", "")
         merged = self.merged_args()
         args = dict(merged)
-        alias = p.get("alias", "—")
+        alias = p.get("alias") or m.get("alias") or "—"
         host = merged.get("host", "127.0.0.1")
         port = merged.get("port", "—")
+        model_name = m.get("name", "")
         extra = " | ".join("%s=%s" % (k, v) for k, v in sorted(args.items()))
-        self.desc_label.config(text="%s\n[对外调用名] %s   [监听] %s:%s\n[参数] %s" % (desc, alias, host, port, extra))
+        self.desc_label.config(text="%s\n[模型] %s   [调用名] %s   [监听] %s:%s\n[参数] %s" % (desc, model_name, alias, host, port, extra))
         self._update_status()
 
     # ---------------- 服务控制 ----------------
     def server_executable(self):
-        """解析引擎可执行文件路径。优先用当前 profile 的 server_executable(版本切换),
-        否则用全局默认(顶层 server_executable)。"""
+        """解析引擎可执行文件路径。优先 profile → model → 全局默认。"""
         p = self.current_profile()
-        exe = (p or {}).get("server_executable") or self.cfg.get("server_executable") or "bin/llama-server.exe"
+        m = self.current_model()
+        exe = ((p or {}).get("server_executable")
+               or (m or {}).get("server_executable")
+               or self.cfg.get("server_executable") or "bin/llama-server.exe")
         exe = expand_path(exe)
         if not os.path.isabs(exe):
             exe = os.path.join(APP_DIR, exe)
         return exe
 
     def merged_args(self):
-        """全局默认参数(host/port) + 当前 profile 参数(profile 可覆盖)。"""
+        """全局默认参数(host/port) + model 公共 args + profile args(覆盖)。"""
         base = {
             "host": self.cfg.get("host", "127.0.0.1"),
             "port": self.cfg.get("port", 8080),
         }
+        m = self.current_model()
+        if m:
+            base.update(m.get("args") or {})
         p = self.current_profile()
         if p:
             base.update(p.get("args") or {})
         return base
 
     def start_server(self):
+        m = self.current_model()
         p = self.current_profile()
-        if not p:
-            messagebox.showwarning("提示", "请先选择配置")
+        if not p or not m:
+            messagebox.showwarning("提示", "请先选择模型和配置")
             return
         try:
             exe = self.server_executable()
@@ -544,6 +595,11 @@ class LauncherApp:
             merged = self.merged_args()
             port = int(merged.get("port") or 8080)
             external_host = str(merged.get("host") or "0.0.0.0")
+            # 有效配置 = model 公共字段(模型路径/mmproj/alias) + profile args(覆盖)
+            eff = dict(p)
+            eff.setdefault("model", m.get("model"))
+            eff.setdefault("mmproj", m.get("mmproj"))
+            eff.setdefault("alias", m.get("alias"))
             use_guard = bool(self.cfg.get("use_guard", True))
             if use_guard:
                 # 代理模式: llama-server 绑本机内部端口, 代理绑对外地址
@@ -555,11 +611,11 @@ class LauncherApp:
                     internal_port = cfg_internal
                 else:
                     internal_port = find_free_port()
-                cmd = build_cmd(p, exe, dict(merged, host="127.0.0.1", port=internal_port), base_dir=self.cfg.get("base_dir"))
+                cmd = build_cmd(eff, exe, dict(merged, host="127.0.0.1", port=internal_port), base_dir=self.cfg.get("base_dir"))
             else:
                 # 直连模式: llama-server 直接绑对外地址, 单端口, 无保险丝
                 internal_port = None
-                cmd = build_cmd(p, exe, merged, base_dir=self.cfg.get("base_dir"))
+                cmd = build_cmd(eff, exe, merged, base_dir=self.cfg.get("base_dir"))
         except Exception as e:
             messagebox.showerror("启动失败", str(e))
             return
@@ -573,7 +629,8 @@ class LauncherApp:
         try:
             env = os.environ.copy()
             env.update(self.cfg.get("env") or {})
-            env.update((p or {}).get("env") or {})
+            env.update(m.get("env") or {})
+            env.update(p.get("env") or {})
             log_path = self.server.start(cmd, env=env)
         except Exception as e:
             messagebox.showerror("启动失败", str(e))
@@ -648,10 +705,11 @@ class LauncherApp:
 
     def _update_status(self):
         p = self.current_profile()
+        m = self.current_model()
         merged = self.merged_args()
         host = merged.get("host", "127.0.0.1")
         port = merged.get("port", "—")
-        alias = p.get("alias", "—") if p else "—"
+        alias = (p.get("alias") or (m or {}).get("alias") or "—") if p else "—"
         if self.server.running:
             self.status_label.config(text="● 运行中", foreground="#2e7d32")
             self.pid_label.config(text="PID: %s" % self.server.pid)

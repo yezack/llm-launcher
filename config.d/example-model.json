@@ -1,0 +1,42 @@
+{
+  "_comment": "单个模型的配置示例。复制到 config.d/ 下（文件名随意），并在 config.json 的 models 里加一行 {\"file\": \"config.d/此文件名\"}。model 用绝对路径或相对 base_dir。mmproj 留空=纯文本。",
+  "name": "示例模型 · Q4_K_M",
+  "alias": "example-model",
+  "model": "relative/path/model-Q4_K_M.gguf",
+  "mmproj": "",
+  "env": {},
+  "profiles": [
+    {
+      "name": "64K 单对话 · MTP",
+      "description": "Q4 权重 + K4V4 KV + MTP 投机解码。64K 单对话。",
+      "alias": "example-model-64k",
+      "args": {
+        "ctx": 65536,
+        "ngl": 99,
+        "threads": 16,
+        "parallel": 1,
+        "fa": "on",
+        "cache_type_k": "q4_0",
+        "cache_type_v": "q4_0",
+        "spec_type": "draft-mtp",
+        "spec_draft_n_max": 4
+      },
+      "env": {}
+    },
+    {
+      "name": "3 对话切换",
+      "description": "3 个 slot（-np 3）共享 KV 池，多对话切换用 slot_id。",
+      "alias": "example-model-3chat",
+      "args": {
+        "ctx": 98304,
+        "ngl": 99,
+        "threads": 16,
+        "parallel": 3,
+        "fa": "on",
+        "cache_type_k": "q4_0",
+        "cache_type_v": "q4_0"
+      },
+      "env": {}
+    }
+  ]
+}

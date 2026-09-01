@@ -24,6 +24,11 @@ if exist "config.json" (
   copy /Y config.example.json "dist\LLMLauncher\config.json" >nul
   echo   [提示] 未找到 config.json, 已用 config.example.json 作为默认配置
 )
+if exist "config.d\*.json" (
+  if not exist "dist\LLMLauncher\config.d" mkdir "dist\LLMLauncher\config.d"
+  copy /Y "config.d\*.json" "dist\LLMLauncher\config.d\" >nul
+  echo   [提示] 已复制 config.d\ 下的模型配置
+)
 
 echo.
 echo 打包完成: dist\LLMLauncher\LLMLauncher.exe

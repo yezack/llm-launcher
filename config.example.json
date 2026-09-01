@@ -1,47 +1,12 @@
 {
-  "_comment": "复制本文件为 config.json 后按需修改。纯 llama.cpp：profile 的 args 用 llama-server 参数（ctx/ngl/parallel/ctk/ctv/spec_type 等），model 用相对 base_dir 或绝对路径，mmproj 留空=纯文本。",
+  "_comment": "主配置模板。复制为 config.json 后按需修改。顶层放公共设置；每个模型一个独立文件放 config.d/（改错一个不影响其他）。models 列表用 file 指向 config.d/ 下的文件。",
   "base_dir": "D:/path/to/models",
   "server_executable": "bin/llama-server.exe",
   "host": "0.0.0.0",
   "port": 8080,
   "use_guard": false,
   "env": {},
-  "profiles": [
-    {
-      "name": "示例 · 64K 单对话 · MTP",
-      "description": "Q4 权重 + K4V4 KV + MTP 投机解码。64K 单对话。",
-      "alias": "model-64k",
-      "model": "relative/path/model-Q4_K_M.gguf",
-      "mmproj": "",
-      "args": {
-        "ctx": 65536,
-        "ngl": 99,
-        "threads": 16,
-        "parallel": 1,
-        "fa": "on",
-        "cache_type_k": "q4_0",
-        "cache_type_v": "q4_0",
-        "spec_type": "draft-mtp",
-        "spec_draft_n_max": 4
-      },
-      "env": {}
-    },
-    {
-      "name": "示例 · 3对话切换",
-      "description": "3 个 slot（-np 3）共享 KV 池，多对话切换用 slot_id。",
-      "alias": "model-3chat",
-      "model": "relative/path/model-Q4_K_M.gguf",
-      "mmproj": "",
-      "args": {
-        "ctx": 98304,
-        "ngl": 99,
-        "threads": 16,
-        "parallel": 3,
-        "fa": "on",
-        "cache_type_k": "q4_0",
-        "cache_type_v": "q4_0"
-      },
-      "env": {}
-    }
+  "models": [
+    { "file": "config.d/example-model.json" }
   ]
 }

@@ -17,3 +17,7 @@ config.json
 
 # ---- llama.cpp 二进制运行时(体积大, 从 llama.cpp release 下载后放入 bin/) ----
 bin/
+
+# ---- 模型配置目录(每模型一个文件, 本地; 仅模板文件入库) ----
+config.d/*
+!config.d/example-model.json
