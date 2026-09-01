@@ -57,6 +57,7 @@ ARGS_MAP = {
     "cache_type_v":      ("-ctv", str),
     "kv_tail_tokens":    ("--kv-tail-tokens", str),
     "spec_type":         ("--spec-type", str),
+    "spec_draft_model":  ("--spec-draft-model", str),
     "spec_draft_n_max":  ("--spec-draft-n-max", int),
     "image_min_tokens":  ("--image-min-tokens", int),
     "batch":             ("-b", int),
@@ -511,7 +512,11 @@ class LauncherApp:
 
     # ---------------- 服务控制 ----------------
     def server_executable(self):
-        exe = expand_path(self.cfg.get("server_executable") or "bin/llama-server.exe")
+        """解析引擎可执行文件路径。优先用当前 profile 的 server_executable(版本切换),
+        否则用全局默认(顶层 server_executable)。"""
+        p = self.current_profile()
+        exe = (p or {}).get("server_executable") or self.cfg.get("server_executable") or "bin/llama-server.exe"
+        exe = expand_path(exe)
         if not os.path.isabs(exe):
             exe = os.path.join(APP_DIR, exe)
         return exe
