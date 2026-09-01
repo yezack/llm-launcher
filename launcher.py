@@ -498,6 +498,12 @@ class LauncherApp:
         self.profile_combo.pack(side="left", padx=6)
         self.profile_combo.bind("<<ComboboxSelected>>", lambda e: self._show_profile_desc())
 
+        ttk.Label(top, text="思考:").pack(side="left")
+        self.thinking_combo = ttk.Combobox(top, state="readonly", width=10,
+                                           values=["默认", "关闭", "low", "medium", "high", "xhigh"])
+        self.thinking_combo.current(0)
+        self.thinking_combo.pack(side="left", padx=6)
+
         btn_row = ttk.Frame(self.root)
         btn_row.pack(fill="x", **pad)
 
@@ -651,6 +657,15 @@ class LauncherApp:
             eff.setdefault("model", m.get("model"))
             eff.setdefault("mmproj", m.get("mmproj"))
             eff.setdefault("alias", m.get("alias"))
+            eff["args"] = dict(p.get("args") or {})
+            # 手动思考强度覆盖(「思考」下拉框): 覆盖配置默认, 仅本次启动生效
+            thinking = self.thinking_combo.get()
+            if thinking == "关闭":
+                eff["args"]["reasoning"] = "off"
+                eff["args"].pop("reasoning_effort", None)
+            elif thinking in ("low", "medium", "high", "xhigh"):
+                eff["args"]["reasoning"] = "on"
+                eff["args"]["reasoning_effort"] = thinking
             use_guard = bool(self.cfg.get("use_guard", True))
             if use_guard:
                 # 代理模式: llama-server 绑本机内部端口, 代理绑对外地址
@@ -695,6 +710,9 @@ class LauncherApp:
                                           listen_host=external_host)
             self.proxy.start()
         self._append_log(">>> 启动命令: %s" % " ".join(cmd), "ok")
+        t_on = eff["args"].get("reasoning", "auto")
+        t_eff = eff["args"].get("reasoning_effort") or "默认"
+        self._append_log(">>> 思考: %s / 强度: %s" % (t_on, t_eff), "ok")
         self._append_log(">>> 日志文件: %s" % log_path, "ok")
         # 记录 llama-server 实际端口(供停止时查忙闲): guard 模式=内部端口, 直连=对外端口
         self._server_port = internal_port if use_guard else port
