@@ -43,6 +43,12 @@ def resource_path(name):
 
 ICON_PATH = resource_path("icon.ico")
 
+# 保险丝代理请求体上限(64MB): 防超大 body 一次性读入内存
+MAX_BODY_BYTES = 64 * 1024 * 1024
+# 日志保留: GUI 日志区最多行数; logs/ 目录最多保留文件数
+LOG_GUI_MAX_LINES = 500
+LOG_DIR_MAX_FILES = 500
+
 # ---------------------------------------------------------------- 参数映射
 # 配置 JSON 里的键 -> (命令行参数, 转换函数)
 ARGS_MAP = {
@@ -59,6 +65,9 @@ ARGS_MAP = {
     "spec_type":         ("--spec-type", str),
     "spec_draft_model":  ("--spec-draft-model", str),
     "spec_draft_n_max":  ("--spec-draft-n-max", int),
+    "reasoning":         ("--reasoning", str),
+    "reasoning_effort":  ("--reasoning-effort", str),
+    "predict":           ("-n", int),
     "image_min_tokens":  ("--image-min-tokens", int),
     "batch":             ("-b", int),
     "ubatch":            ("-ub", int),
@@ -90,23 +99,32 @@ def resolve_path(p, base_dir=None):
 
 def load_config(path=CONFIG_PATH):
     """加载主配置 + config.d/ 下每个模型一个文件, 合并为 models 数组。
-    主配置只放顶层(host/port/env 等) + models 索引; 每个模型文件独立, 改错一个不影响其他。"""
+    主配置只放顶层(host/port/env 等) + models 索引; 每个模型文件独立, 改错一个不影响其他。
+    缺失/损坏的模型文件不静默跳过, 警告写入 cfg['_warnings'] 供 UI 提示。"""
     with open(path, encoding="utf-8") as f:
         cfg = json.load(f)
     base_dir = os.path.dirname(os.path.abspath(path))
     models = []
+    warnings = []
     for ref in cfg.get("models", []):
         fname = ref.get("file", "")
         if not fname:
+            warnings.append("models 索引项缺少 file 字段: %r" % (ref,))
             continue
         fpath = fname if os.path.isabs(fname) else os.path.join(base_dir, fname)
         if not os.path.exists(fpath):
+            warnings.append("模型配置缺失: %s" % fpath)
             continue
-        with open(fpath, encoding="utf-8") as f:
-            m = json.load(f)
+        try:
+            with open(fpath, encoding="utf-8") as f:
+                m = json.load(f)
+        except Exception as e:
+            warnings.append("模型配置解析失败: %s (%s)" % (fpath, e))
+            continue
         m.setdefault("server_executable", cfg.get("server_executable"))
         models.append(m)
     cfg["models"] = models
+    cfg["_warnings"] = warnings
     return cfg
 
 
@@ -227,6 +245,14 @@ class _GuardHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         guard = self.server.guard
         length = int(self.headers.get("Content-Length") or 0)
+        # --- 请求体大小上限: 防超大 body 吃内存 ---
+        if length > MAX_BODY_BYTES:
+            self._send_json(413, {"error": {
+                "code": 413,
+                "message": "request body too large: %d bytes, limit is %d" % (length, MAX_BODY_BYTES),
+                "type": "payload_too_large",
+            }})
+            return
         body = self.rfile.read(length) if length else b""
 
         # --- 单次输入长度预检 ---
@@ -340,6 +366,7 @@ class ServerManager:
     def start(self, cmd, env=None):
         self.stop()  # 确保先停旧的
         os.makedirs(LOG_DIR, exist_ok=True)
+        self._cleanup_old_logs()
         log_path = os.path.join(LOG_DIR, time.strftime("server_%Y%m%d_%H%M%S.log"))
         self._log_file = open(log_path, "w", encoding="utf-8")
         self.proc = subprocess.Popen(
@@ -355,6 +382,22 @@ class ServerManager:
         )
         threading.Thread(target=self._reader, daemon=True).start()
         return log_path
+
+    def _cleanup_old_logs(self):
+        """logs/ 目录只保留最近 LOG_DIR_MAX_FILES 个 server_*.log, 删最旧。"""
+        try:
+            files = [os.path.join(LOG_DIR, f) for f in os.listdir(LOG_DIR)
+                     if f.startswith("server_") and f.endswith(".log")]
+            if len(files) <= LOG_DIR_MAX_FILES:
+                return
+            files.sort(key=os.path.getmtime, reverse=True)
+            for old in files[LOG_DIR_MAX_FILES:]:
+                try:
+                    os.remove(old)
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     def _reader(self):
         for line in self.proc.stdout:
@@ -417,6 +460,7 @@ class LauncherApp:
         self.tray_thread = None
         self.exiting = False
         self.proxy = None
+        self._server_port = None
 
         self.root.title("LLM Launcher")
         self.root.geometry("860x560")
@@ -504,11 +548,16 @@ class LauncherApp:
             return
         models = self.cfg.get("models", [])
         self.model_combo["values"] = [m.get("name", "未命名模型") for m in models]
+        self.profile_combo["values"] = []
+        self.profile_combo.set("")
         if models:
             self.model_combo.current(0)
             self._update_profiles()
             self._show_profile_desc()
         self.cfg_label.config(text=os.path.basename(CONFIG_PATH))
+        warnings = self.cfg.get("_warnings") or []
+        if warnings:
+            messagebox.showwarning("配置警告", "\n".join(warnings))
 
     def current_model(self):
         idx = self.model_combo.current()
@@ -644,6 +693,8 @@ class LauncherApp:
             self.proxy.start()
         self._append_log(">>> 启动命令: %s" % " ".join(cmd), "ok")
         self._append_log(">>> 日志文件: %s" % log_path, "ok")
+        # 记录 llama-server 实际端口(供停止时查忙闲): guard 模式=内部端口, 直连=对外端口
+        self._server_port = internal_port if use_guard else port
         if self.proxy:
             self._append_log(">>> 对外: %s:%s (代理+保险丝) → 内部 127.0.0.1:%s" % (
                 external_host, port, internal_port), "ok")
@@ -653,9 +704,31 @@ class LauncherApp:
         self.stop_btn.config(state="normal")
         self._update_status()
 
+    def _slots_busy(self):
+        """查询 llama-server /slots, 是否有请求正在生成(防止 GPU 忙时强杀)。查不到视为不忙。"""
+        port = getattr(self, "_server_port", None)
+        if not port:
+            return False
+        try:
+            with urllib.request.urlopen("http://127.0.0.1:%d/slots" % port, timeout=3) as r:
+                slots = json.loads(r.read())
+            return any(str(s.get("state", "")).lower() in ("processing", "busy")
+                       for s in slots)
+        except Exception:
+            return False
+
     def stop_server(self):
         if self.server.running:
             self._append_log(">>> 正在停止服务并卸载模型(释放显存)...")
+            # 优雅停止: 若有请求正在生成, 先确认再强杀(避免 GPU 忙时崩溃)
+            if self._slots_busy():
+                if not messagebox.askyesno(
+                        "正在生成中",
+                        "有请求正在生成, 立即停止会中断生成并强杀进程(可能影响显存)。\n"
+                        "等生成完成再停? 选「否」= 现在强制停止。"):
+                    self._append_log(">>> 已取消停止, 等待生成完成", "ok")
+                    return
+                self._append_log(">>> 用户确认强制停止", "err")
         self._stop_proxy()
         self.server.stop()
         self.start_btn.config(state="normal")
@@ -691,14 +764,14 @@ class LauncherApp:
             low = line.lower()
             tag = "err" if ("error" in low or "illegal" in low or "failed" in low) else None
             self._append_log(line, tag)
-            # 日志上限: 超过 3000 行时裁掉最旧的 1000 行
+            # 日志上限: 超过 LOG_GUI_MAX_LINES 行时裁掉最旧的 100 行
             try:
                 line_count = int(self.log_text.index("end-1c").split(".")[0])
             except Exception:
                 line_count = 0
-            if line_count > 3000:
+            if line_count > LOG_GUI_MAX_LINES:
                 self.log_text.config(state="normal")
-                self.log_text.delete("1.0", "1000.0")
+                self.log_text.delete("1.0", "100.0")
                 self.log_text.config(state="disabled")
         self._update_status()
         self.root.after(200, self._poll_loop)

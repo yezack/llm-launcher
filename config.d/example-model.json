@@ -7,8 +7,8 @@
   "env": {},
   "profiles": [
     {
-      "name": "64K 单对话 · MTP",
-      "description": "Q4 权重 + K4V4 KV + MTP 投机解码。64K 单对话。",
+      "name": "64K · MTP · 1路 · XX tok/s",
+      "description": "Q4 权重 + K4V4 KV + MTP 投机解码。64K 单对话。实测 XX tok/s，显存 XXGB。",
       "alias": "example-model-64k",
       "args": {
         "ctx": 65536,

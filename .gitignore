@@ -12,6 +12,10 @@ dist/
 # ---- 运行日志 ----
 logs/
 
+# ---- 测速脚本 / 日志(本地测试工具, 不入库) ----
+bench_*.log
+bench_*.py
+
 # ---- 本地配置(含个人绝对路径, 请复制 config.example.json 为 config.json 后自行修改) ----
 config.json
 
