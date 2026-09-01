@@ -152,6 +152,10 @@ def build_cmd(profile, server_exe, defaults=None, base_dir=None):
 
     args = dict(defaults or {})
     args.update(profile.get("args") or {})
+    # spec_draft_model 也按 base_dir 解析相对路径(支持 %VAR%/~/相对路径)
+    draft = args.get("spec_draft_model")
+    if draft:
+        args["spec_draft_model"] = resolve_path(draft, base_dir)
     for key, (flag, conv) in ARGS_MAP.items():
         val = args.get(key)
         if val is None or val == "":
