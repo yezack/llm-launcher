@@ -623,7 +623,7 @@ class LauncherApp:
         """全局默认参数(host/port) + model 公共 args + profile args(覆盖)。"""
         base = {
             "host": self.cfg.get("host", "127.0.0.1"),
-            "port": self.cfg.get("port", 8080),
+            "port": self.cfg.get("port", 62345),
         }
         m = self.current_model()
         if m:
@@ -644,7 +644,7 @@ class LauncherApp:
             if not os.path.exists(exe):
                 raise FileNotFoundError("找不到 llama-server.exe: %s" % exe)
             merged = self.merged_args()
-            port = int(merged.get("port") or 8080)
+            port = int(merged.get("port") or 62345)
             external_host = str(merged.get("host") or "0.0.0.0")
             # 有效配置 = model 公共字段(模型路径/mmproj/alias) + profile args(覆盖)
             eff = dict(p)
